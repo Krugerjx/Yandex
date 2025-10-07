@@ -3,38 +3,113 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Карта монтажа — подсветка домов (Leaflet/OSM)</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <title>Карта монтажа — контуры домов (Yandex Maps v3)</title>
+
+  <!-- Яндекс.Карты v3 -->
+  <script src="https://api-maps.yandex.ru/3.0/?apikey=YOUR_API_KEY_HERE&lang=ru_RU"></script>
+
   <style>
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-    #app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
+    #app { display: grid; grid-template-columns: 400px 1fr; height: 100%; }
     #sidebar { padding: 14px; border-right: 1px solid #eee; overflow: auto; }
     #map { width: 100%; height: 100%; }
     .panel { background: #fafafa; border: 1px solid #eaeaea; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
-    .row { display: flex; gap: 8px; align-items: center; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .row input, .row button, textarea { font-size: 14px; }
     textarea { width: 100%; min-height: 120px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas; }
     .legend { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; font-size: 13px; }
-    .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,.15); }
+    .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,.15); cursor: pointer; }
     .item { padding: 8px 10px; border-radius: 10px; border: 1px dashed #ddd; margin-bottom: 6px; cursor: pointer; }
     .muted { color: #666; font-size: 13px; }
     .pill { padding: 2px 6px; border-radius: 999px; font-size: 12px; background: #f1f5f9; border: 1px solid #e5e7eb; }
+    .hint { font-size: 12px; color:#475569; }
+    .tip { font-size: 12px; color:#64748b; }
+
+    /* Палитра выбора цвета */
+    .color-picker {
+      position: absolute;
+      display: none;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 8px;
+      box-shadow: 0 10px 24px rgba(0,0,0,.15);
+      z-index: 9999;
+      grid-template-columns: repeat(10, 22px);
+      gap: 6px;
+    }
+    .color-cell {
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      border: 1px solid rgba(0,0,0,.2);
+      cursor: pointer;
+    }
+
+    /* Маркеры-ярлыки для номеров домов */
+    .house-label {
+      display: inline-block;
+      padding: 0 3px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(255,255,255,.96);
+      border: 2px solid var(--hl-color, rgba(0,0,0,.25));
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.10);
+      line-height: 1.1;
+      white-space: nowrap;
+      user-select: none;
+      transform: translateY(-8px);
+    }
+
+    /* Простой тултип */
+    .tooltip {
+      background: #fff; border: 1px solid #e5e7eb; border-radius: 8px;
+      box-shadow: 0 8px 20px rgba(0,0,0,.12);
+      padding: 6px 8px; font-size: 12px;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
 <div id="app">
   <div id="sidebar">
     <div class="panel">
-      <div style="font-weight:700;">Карта монтажа — Leaflet/OSM</div>
-      <div class="muted">Вставь адреса → «Построить». Понимает и 6-колоночный формат.</div>
+      <div style="font-weight:700;">Карта монтажа — Яндекс/OSM</div>
+      <div class="muted">Загрузи CSV/TSV или вставь вручную. Цвета — по компаниям. Подписи/номера — чекбоксами.</div>
     </div>
 
     <div class="panel">
-      <div style="font-weight:600; margin-bottom:6px;">Адреса</div>
-      <textarea id="addrInput" placeholder="Форматы:
-• Адрес[TAB]Статус[TAB]#Цвет
-• ID  ID2  Город  Улица  Дом  Подъезд  (через пробелы/табы). Статус = 'Подъезд N'."></textarea>
+      <div style="font-weight:600; margin-bottom:6px;">Загрузка файла (CSV/TSV)</div>
+      <div class="row">
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt" />
+        <button id="btnBuildFile">Загрузить и построить</button>
+      </div>
+      <div class="hint" style="margin-top:8px;">
+        Новый формат колонок: <b>№</b>, <b>Город</b>, <b>Улица</b>, <b>Дом</b>, <b>кол подъездов</b>, <b>Компания</b>.<br/>
+        Поддерживаются и старые форматы: <b>Город</b>, <b>Адрес</b>, <b>Компания</b> или прочие варианты из подсказки ниже.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;">
+        <div style="font-weight:600;">Адреса (ручной ввод)</div>
+        <div class="row" style="gap:12px;">
+          <label class="row" style="gap:6px;">
+            <input type="checkbox" id="chkLabels" />
+            Подписи компаний
+          </label>
+          <label class="row" style="gap:6px;">
+            <input type="checkbox" id="chkHnums" />
+            Номера домов
+          </label>
+        </div>
+      </div>
+      <textarea id="addrInput" placeholder="Варианты форматов (каждая строка — один адрес):
+• №[TAB]Город[TAB]Улица[TAB]Дом[TAB]кол подъездов[TAB]Компания
+  Пример: 1[TAB]г. Саратов[TAB]улица Рахова[TAB]169/171[TAB]2[TAB]ООО Альфа
+• Старый: Город, Адрес[TAB]Компания
+• Два ряда: Адрес ↵ Компания (на следующей строке)
+• 6-колоночный (старый): ID ID2 Город Улица Дом Подъезд"></textarea>
       <div class="row" style="margin-top:8px;">
         <button id="btnBuild">Построить</button>
         <button id="btnClear">Очистить</button>
@@ -43,7 +118,28 @@
     </div>
 
     <div class="panel">
-      <div style="font-weight:600; margin-bottom:6px;">Легенда статусов</div>
+      <div style="font-weight:600; margin-bottom:6px;">Выбор домов</div>
+      <label class="row" style="gap:6px; margin-bottom:6px;">
+        <input type="checkbox" id="chkSelectMode" />
+        Режим выбора домов
+      </label>
+      <label class="row" style="gap:6px; margin-bottom:6px;">
+        <input type="checkbox" id="chkOnlySel" />
+        Показывать на карте только выбранные
+      </label>
+      <div class="row" style="margin-bottom:8px;">
+        <button id="btnSelectBox">Выделить прямоугольником</button>
+        <button id="btnClearSel">Сбросить выделение</button>
+      </div>
+      <div class="row">
+        <button id="btnGenerate">Сгенерировать наряд (таблица)</button>
+        <button id="btnExportMap">Экспорт карты (только выбранные)</button>
+      </div>
+      <div class="tip" style="margin-top:6px;">В режиме выбора кликай по дому для (де)выделения. (Прямоугольник — в этой версии недоступен)</div>
+    </div>
+
+    <div class="panel">
+      <div style="font-weight:600; margin-bottom:6px;">Легенда компаний</div>
       <div id="legend" class="legend"></div>
     </div>
 
@@ -55,166 +151,801 @@
   <div id="map"></div>
 </div>
 
+<!-- Палитра (портал) -->
+<div id="colorPicker" class="color-picker" role="dialog" aria-hidden="true"></div>
+
 <script>
-(function(){
-  // ===== Карта Leaflet (без ключей) =====
-  const map = L.map('map').setView([51.533, 46.033], 12); // Саратов по умолчанию
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 20,
-    attribution: '&copy; OpenStreetMap'
-  }).addTo(map);
+(async function(){
+  await ymaps3.ready;
+
+  const { YMap, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer, YMapMarker, YMapFeature } = ymaps3;
+  // Контролы (зум и кнопка «Открыть в Яндекс.Картах»)
+  const controls = await ymaps3.import('@yandex/ymaps3-controls@0.0.1');
+  const { YMapZoomControl, YMapOpenMapsButton } = controls;
+
+  // ===== Карта =====
+  const map = new YMap(
+    document.getElementById('map'),
+    { location: { center: [46.033, 51.533], zoom: 12 } },
+    [ new YMapDefaultSchemeLayer(), new YMapDefaultFeaturesLayer() ]
+  );
+  map.addChild(new YMapZoomControl({ position: 'right' }));
+  map.addChild(new YMapOpenMapsButton({ position: 'right' }));
 
   const $ = (s)=>document.querySelector(s);
   const state = {
-    layers: [],
-    bounds: L.latLngBounds()
+    polys: [],        // YMapFeature (Polygon)
+    centers: [],      // центроиды для fitBounds
+    labels: [],       // YMapMarker метки номеров домов
+    tooltips: [],     // YMapMarker тултипы (если включены)
+    items: [],        // список для сайдбара
+    selected: new Set(),
+    hidden: new Set()
   };
 
-  function clearAll(){
-    state.layers.forEach(l => map.removeLayer(l));
-    state.layers = [];
-    state.bounds = L.latLngBounds();
-    $('#list').innerHTML = '';
-  }
+  // ===== Утилиты =====
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function addListItem(item){
     const el=document.createElement('div');
     el.className='item';
     el.innerHTML=`<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
       <div style="font-weight:600">${escapeHtml(item.address)}</div>
-      ${item.status?`<span class='pill' style='border:1px solid ${item.color||'#ddd'}'>${escapeHtml(item.status)}</span>`:''}
-    </div><div class='muted'>${item.lat&&item.lon?`${item.lat.toFixed(6)}, ${item.lon.toFixed(6)}`:'—'}</div>`;
-    el.addEventListener('click',()=>{ if(item.lat&&item.lon){ map.setView([item.lat,item.lon], 17); } });
+      ${item.company?`<span class='pill' style='border:1px solid ${item.color||'#ddd'}'>${escapeHtml(item.company)}</span>`:''}
+    </div>
+    <div class='muted'>
+      ${item.entrances ? `Подъездов: ${item.entrances} • ` : ''}${item.lat!=null&&item.lon!=null?`${Number(item.lat).toFixed(6)}, ${Number(item.lon).toFixed(6)}`:'—'}
+    </div>`;
+    el.addEventListener('click',()=>{
+      if(item.lat!=null&&item.lon!=null){
+        map.update({ location: { center: [item.lon, item.lat], zoom: 17, duration: 300 } });
+      }
+    });
     $('#list').appendChild(el);
   }
-  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function rerenderList(){
+    $('#list').innerHTML='';
+    for(const it of state.items){
+      const color = colorByCompany(it.company||'');
+      addListItem({...it, color});
+    }
+  }
+  function clearAll(){
+    state.polys.forEach(p => map.removeChild(p));
+    state.labels.forEach(m => map.removeChild(m));
+    state.tooltips.forEach(t => map.removeChild(t));
+    state.polys = [];
+    state.labels = [];
+    state.tooltips = [];
+    state.items = [];
+    state.centers = [];
+    state.selected.clear();
+    state.hidden.clear();
+    $('#list').innerHTML = '';
+  }
 
-  // ===== Цвета/легенда =====
-  const statusColor = new Map();
+  // ===== Цвета / легенда =====
+  const companyColor = new Map();
+  const CONTRAST_COLORS = [
+    '#e6194b','#3cb44b','#ffe119','#4363d8','#f58231','#911eb4',
+    '#46f0f0','#f032e6','#bcf60c','#fabebe','#008080','#e6beff',
+    '#9a6324','#fffac8','#800000','#aaffc3','#808000','#ffd8b1',
+    '#000075','#808080','#7f7f7f','#42d4f4','#bfef45','#ffd700',
+    '#0082c8','#aa6e28','#d2f53c','#d66dd6','#00a2e8','#ffaec9',
+    '#a10000','#00a100','#0044a1','#7f007f','#00a199','#ff7f00'
+  ];
   function hash(str){ let h=0; for(let i=0;i<str.length;i++){ h=((h<<5)-h)+str.charCodeAt(i); h|=0; } return h; }
-  function ensureColor(item){
-    if(item.color) return item.color; // передан #hex/hsl
-    if(!item.status) return '#7c3aed';
-    if(statusColor.has(item.status)) return statusColor.get(item.status);
-    const h=Math.abs(hash(item.status))%360;
-    const c=`hsl(${h} 90% 45%)`;
-    statusColor.set(item.status,c);
+  function colorByCompany(company){
+    if(!company) return '#7c3aed';
+    if(companyColor.has(company)) return companyColor.get(company);
+    const idx = Math.abs(hash(company)) % CONTRAST_COLORS.length;
+    const c = CONTRAST_COLORS[idx];
+    companyColor.set(company,c);
     return c;
   }
-  function addLegendRow(s,c){ const host=$('#legend'); const t=document.createElement('div'); t.textContent=s||'(без статуса)'; const sw=document.createElement('div'); sw.className='swatch'; sw.style.background=c||'#7c3aed'; host.appendChild(t); host.appendChild(sw); }
+  function setCompanyColor(company, color){
+    companyColor.set(company, color);
+    recolorPolys(company, color);
+    rebuildLegend();
+    rerenderList();
+    rebuildHouseLabels();
+  }
+  function recolorPolys(company, color){
+    for(const pf of state.polys){
+      if(pf.__meta?.company === company){
+        pf.update({ style: { fill: color+'E6', stroke: [{color, width:2}] }});
+      }
+    }
+  }
+  function addLegendRow(s,c){
+    const host=$('#legend');
+    const t=document.createElement('div'); t.textContent=s||'(без компании)';
+    const sw=document.createElement('div');
+    sw.className='swatch swatch-click';
+    sw.style.background=c||'#7c3aed';
+    if (s) {
+      sw.title = 'Изменить цвет';
+      sw.addEventListener('click', (ev)=> openColorPickerFor(s, ev.currentTarget));
+    }
+    host.appendChild(t); host.appendChild(sw);
+  }
   function rebuildLegend(){
     const host=$('#legend'); host.innerHTML='';
-    const arr=Array.from(statusColor.entries());
+    const arr=Array.from(companyColor.entries());
     if(!arr.length){ addLegendRow('Адреса','#7c3aed'); return; }
+    arr.sort((a,b)=>a[0].localeCompare(b[0],'ru'));
     arr.forEach(([s,c])=>addLegendRow(s,c));
   }
 
-  // ===== Парсер ввода =====
-  function parseInput(text){
-    const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  // ===== Палитра выбора цвета =====
+  const pickerEl = document.getElementById('colorPicker');
+  let pickerCompany = null;
+  (function fillPalette(){
+    pickerEl.style.display='grid';
+    pickerEl.innerHTML='';
+    CONTRAST_COLORS.forEach(col=>{
+      const cell=document.createElement('div');
+      cell.className='color-cell';
+      cell.style.background=col;
+      cell.addEventListener('click', ()=>{ if(pickerCompany){ setCompanyColor(pickerCompany, col); hidePicker(); }});
+      pickerEl.appendChild(cell);
+    });
+    pickerEl.style.display='none';
+  })();
+  function openColorPickerFor(company, anchor){
+    pickerCompany = company;
+    const r = anchor.getBoundingClientRect();
+    pickerEl.style.left = Math.min(window.scrollX + r.left, window.scrollX + window.innerWidth - 250) + 'px';
+    pickerEl.style.top  = (window.scrollY + r.bottom + 8) + 'px';
+    pickerEl.style.display = 'grid';
+    pickerEl.setAttribute('aria-hidden','false');
+  }
+  function hidePicker(){ pickerEl.style.display='none'; pickerEl.setAttribute('aria-hidden','true'); pickerCompany = null; }
+  document.addEventListener('click',(e)=>{
+    if(pickerEl.style.display==='none') return;
+    const withinPicker = pickerEl.contains(e.target);
+    const onSwatch = e.target.classList && e.target.classList.contains('swatch-click');
+    if(!withinPicker && !onSwatch) hidePicker();
+  });
+
+  // ===== Парсеры (как в версии на Leaflet) =====
+  function isCompanyLine(s){
+    const t = String(s||'').trim();
+    return /^((ООО|ОАО|ПАО|ЗАО|АО|ИП|ТОО|OOO|LLC|LTD|GMBH|GmbH)|[0OО]{3})\b/i.test(t);
+  }
+  function normalizeCompany(s){
+    return String(s||'').trim()
+      .replace(/^[0OО]{3}\b\.?/i,'ООО')
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+  function parseSixCols(parts){
+    const n = parts[0]?.trim();
+    const city = parts[1]?.trim();
+    const street = parts[2]?.trim();
+    const house = parts[3]?.trim();
+    const entrances = parts[4]?.trim();
+    const company = normalizeCompany(parts.slice(5).join(' ').trim());
+    const address = [city, street, house].filter(Boolean).join(', ');
+    return { num:n, city, street, house, entrances, address, company };
+  }
+  function parseFiveCols(parts){
+    const n = parts[0]?.trim();
+    const street = parts[1]?.trim();
+    const house = parts[2]?.trim();
+    const entrances = parts[3]?.trim();
+    const company = normalizeCompany(parts.slice(4).join(' ').trim());
+    const address = [street, house].filter(Boolean).join(', ');
+    return { num:n, city:'', street, house, entrances, address, company };
+  }
+  function parseTextarea(text){
+    const raw = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
     const out=[];
-    for(const line of lines){
-      // 6-колонок: ID ID2 City Street House Entrance
-      const m6=/^(\S+)\s+(\S+)\s+(\S+)\s+(.+?)\s+(\S+)\s+(\S+)$/.exec(line);
-      if(m6){ const city=m6[3], street=m6[4], house=m6[5], entr=m6[6]; out.push({ address:`${city}, ${street} ${house}`, status:`Подъезд ${entr}`, color:'' }); continue; }
-      // Табами: Адрес \t Статус \t Цвет
-      const tab=line.split(/\t/);
-      if(tab.length>=1){ out.push({ address:tab[0]?.trim(), status:tab[1]?.trim()||'', color:(tab[2]?.trim()||'').toLowerCase() }); continue; }
+    for(let i=0;i<raw.length;i++){
+      const line = raw[i];
+      const partsTab = line.split(/\t/);
+      if (partsTab.length >= 6){ out.push(parseSixCols(partsTab)); continue; }
+      if (partsTab.length === 5){ out.push(parseFiveCols(partsTab)); continue; }
+      if (partsTab.length >= 2){
+        out.push({ address: partsTab[0].trim(), company: normalizeCompany(partsTab.slice(1).join(' ').trim()) });
+        continue;
+      }
+      if(i+1 < raw.length && isCompanyLine(raw[i+1])){
+        out.push({ address: line, company: normalizeCompany(raw[i+1]) }); i++; continue;
+      }
+      let m = line.match(/^(.*?)(?:\s{2,}|[—\-:;|]\s*)(\b(?:ООО|ОАО|ПАО|ЗАО|АО|ИП|OOO|LLC|LTD|GMBH|[0OО]{3})\b\.?\s*.*)$/i);
+      if(m){ out.push({ address: m[1].trim(), company: normalizeCompany(m[2]) }); continue; }
+      out.push({ address: line, company: '' });
+    }
+    return out;
+  }
+  function stripBOM(s){ return s.replace(/^\uFEFF/, ''); }
+  function smartSplit(line, delim){
+    const out=[], d = delim, n = line.length;
+    let cur='', inQ=false;
+    for(let i=0;i<n;i++){
+      const ch=line[i];
+      if(ch === '"'){ if(inQ && line[i+1] === '"'){ cur+='"'; i++; } else inQ=!inQ; }
+      else if(!inQ && ch === d){ out.push(cur); cur=''; }
+      else { cur+=ch; }
+    }
+    out.push(cur);
+    return out.map(s=>s.trim());
+  }
+  function detectDelimiter(text){
+    const sample = stripBOM(text).split(/\r?\n/).filter(l=>l.trim()).slice(0,6);
+    const cands=[',',';','\t'];
+    function score(d){
+      const cols = sample.map(l=>smartSplit(l,d).length);
+      const min=Math.min(...cols), max=Math.max(...cols);
+      return {d, spread:max-min, maxCols:Math.max(...cols)};
+    }
+    return cands.map(score).sort((a,b)=> a.spread-b.spread || b.maxCols-a.maxCols)[0].d;
+  }
+  function parseCSV(text){
+    const t = stripBOM(text);
+    const delim = detectDelimiter(t);
+    const rows = t.split(/\r?\n/).filter(l=>l.trim().length>0);
+    if(rows.length===0) return [];
+    const headerRaw = smartSplit(rows[0], delim).map(h=>h.replace(/^"|"$/g,'').trim());
+    const header = headerRaw.map(h=>h.toLowerCase());
+    const idxNum       = header.findIndex((_,i)=>/^(№|#|num|номер)$/i.test(headerRaw[i]));
+    const idxCityNew   = header.findIndex(h=>/^(город|city)$/.test(h));
+    const idxStreet    = header.findIndex(h=>/(улица|street)/.test(h));
+    const idxHouse     = header.findIndex(h=>/^(дом|house|№ дома|номер дома)$/.test(h) || /(^|[^а-я])дом([^а-я]|$)/.test(h));
+    const idxEntrances = header.findIndex(h=>/(кол|кол-во|количество).*(подъезд|подъездов)|entrances/.test(h));
+    const idxCompanyN  = header.findIndex(h=>/^(компан|company)/.test(h));
+    const idxCityOld    = header.findIndex(h=>/^(город|city)$/.test(h));
+    const idxAddrOld    = header.findIndex(h=>/^(адрес|address)$/.test(h));
+    const idxCompanyOld = idxCompanyN >= 0 ? idxCompanyN : header.findIndex(h=>/^(компан|company)/.test(h));
+
+    const out=[];
+    const hasNew6 = (idxCityNew>=0 && idxStreet>=0 && idxHouse>=0);
+    for(let i=1;i<rows.length;i++){
+      const cols = smartSplit(rows[i], delim).map(v=>{
+        if(v.startsWith('"') && v.endsWith('"')) v=v.slice(1,-1).replace(/""/g,'"');
+        return v.trim();
+      });
+      if (hasNew6){
+        const parts = [];
+        parts[0] = idxNum>=0 ? cols[idxNum] : '';
+        parts[1] = idxCityNew>=0 ? cols[idxCityNew] : '';
+        parts[2] = idxStreet>=0 ? cols[idxStreet] : '';
+        parts[3] = idxHouse>=0 ? cols[idxHouse] : '';
+        parts[4] = idxEntrances>=0 ? cols[idxEntrances] : '';
+        const comp = idxCompanyN>=0 ? cols[idxCompanyN] : '';
+        const obj = parseSixCols([parts[0]||'', parts[1]||'', parts[2]||'', parts[3]||'', parts[4]||'', comp||'']);
+        out.push(obj);
+        continue;
+      }
+      const city = idxCityOld>=0 ? cols[idxCityOld] : '';
+      const addr = idxAddrOld>=0 ? cols[idxAddrOld] : '';
+      const comp = idxCompanyOld>=0 ? cols[idxCompanyOld] : '';
+      const full = city ? `${city}, ${addr}` : addr;
+      if(full) out.push({ address: full, company: normalizeCompany(comp) });
     }
     return out;
   }
 
-  // ===== Геокодер: Photon (OSM), без ключей =====
-  // Документация: https://photon.komoot.io/
-  async function geocode(address){
-    const url = new URL('https://photon.komoot.io/api/');
-    url.searchParams.set('q', address);
-    url.searchParams.set('limit', '1');
+  // ===== Геокодеры (Photon/Nominatim) =====
+  async function geocodePhoton(address){
+    const url = new URL('https://photon.komoot.io/api/'); url.searchParams.set('q', address); url.searchParams.set('limit', '1');
     const r = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
-    if(!r.ok) throw new Error('Photon error: '+r.status);
+    if(!r.ok) return null;
     const j = await r.json();
     const f = j?.features?.[0];
     if(!f) return null;
     const point = f.geometry?.type==='Point' ? f.geometry.coordinates : null; // [lon, lat]
-    // photon чаще отдаёт только точку. Если когда-то попадётся Polygon/MultiPolygon — тоже поддержим:
     let polygon = null;
     if (f.geometry?.type === 'Polygon') polygon = f.geometry.coordinates[0];
     if (f.geometry?.type === 'MultiPolygon') polygon = f.geometry.coordinates[0][0];
     return { point, polygon };
   }
+  async function geocodeNominatim(address){
+    const url = new URL('https://nominatim.openstreetmap.org/search');
+    url.searchParams.set('q', address); url.searchParams.set('format', 'jsonv2'); url.searchParams.set('limit', '1');
+    const r = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+    if(!r.ok) return null;
+    const arr = await r.json();
+    const obj = arr?.[0];
+    if(!obj) return null;
+    const point = obj.lon && obj.lat ? [parseFloat(obj.lon), parseFloat(obj.lat)] : null;
+    return { point, polygon: null };
+  }
+  async function geocode(address){
+    let res = await geocodePhoton(address);
+    if (res) return res;
+    await new Promise(r=>setTimeout(r,150));
+    return await geocodeNominatim(address);
+  }
 
-  // ===== Геометрия: квадрат вокруг точки (~30×30 м) =====
-  function squareAround([lon, lat], meters = 30){
-    const dLat = (meters / 111320);               // ~метры в градус широты
-    const dLon = (meters / (40075000 * Math.cos(lat*Math.PI/180) / 360)); // метры в градус долготы
-    return [
-      [lat+dLat, lon-dLon],
-      [lat+dLat, lon+dLon],
-      [lat-dLat, lon+dLon],
-      [lat-dLat, lon-dLon]
+  // ===== Overpass: контуры зданий =====
+  async function fetchWithTimeout(url, options={}, timeoutMs=65000) {
+    const ctl = new AbortController();
+    const id = setTimeout(()=>ctl.abort(new Error('timeout')), timeoutMs);
+    try { return await fetch(url, { ...options, signal: ctl.signal }); }
+    finally { clearTimeout(id); }
+  }
+  async function fetchBuildingPolygon({ lon, lat }, radius = 500) {
+    const ENDPOINTS = [
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.openstreetmap.ru/api/interpreter'
     ];
+    const q = `
+      [out:json][timeout:60];
+      (
+        way["building"](around:${radius},${lat},${lon});
+        relation["building"](around:${radius},${lat},${lon});
+      );
+      out body geom;
+    `.trim();
+
+    for (let tryN = 0; tryN < 3; tryN++) {
+      for (const ep of ENDPOINTS) {
+        try {
+          const resp = await fetchWithTimeout(ep, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+            body: new URLSearchParams({ data: q })
+          }, 65000);
+          if (!resp.ok) {
+            if (resp.status === 429 || (resp.status >= 500 && resp.status < 600)) {
+              await new Promise(r=>setTimeout(r, 800 + 400*tryN));
+              continue;
+            }
+            continue;
+          }
+          const data = await resp.json();
+          if (!Array.isArray(data.elements) || !data.elements.length) continue;
+
+          function dist2(aLat, aLon, bLat, bLon) {
+            const dLat = (aLat - bLat), dLon = (aLon - bLon);
+            return dLat*dLat + dLon*dLon;
+          }
+          let best = null, bestD = Infinity;
+          for (const el of data.elements) {
+            if ((el.type === 'way' || el.type === 'relation') && Array.isArray(el.geometry) && el.geometry.length >= 4) {
+              const ring = el.geometry.map(p => [p.lon, p.lat]); // [lon,lat] для Yandex
+              const first = ring[0], last = ring[ring.length - 1];
+              if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+              // bbox центр
+              let minLat=+Infinity, minLon=+Infinity, maxLat=-Infinity, maxLon=-Infinity;
+              for (const [lo,la] of ring) { if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; }
+              const cLat=(minLat+maxLat)/2, cLon=(minLon+maxLon)/2;
+              const d = dist2(cLat, cLon, lat, lon);
+              if (d < bestD) { bestD = d; best = ring; }
+            }
+          }
+          if (best) return best;
+        } catch(e){ await new Promise(r=>setTimeout(r, 600)); }
+      }
+    }
+    return null;
   }
 
-  function withAlpha(color, a){
-    if(/^#([0-9a-f]{6})$/i.test(color)){
-      const r=parseInt(color.slice(1,3),16), g=parseInt(color.slice(3,5),16), b=parseInt(color.slice(5,7),16);
-      return `rgba(${r},${g},${b},${a})`;
-    }
-    if(/^hsl\(/i.test(color)){
-      return color.replace(/^hsl/i,'hsla').replace(/\)$/,`, ${a})`);
-    }
-    return color;
+  // ===== Подсказки (тултипы) компаний =====
+  function addTooltip(lon, lat, html) {
+    const el = document.createElement('div');
+    el.className = 'tooltip';
+    el.innerHTML = html;
+    const marker = new YMapMarker({ coordinates: [lon, lat] }, el);
+    state.tooltips.push(marker);
+    map.addChild(marker);
+    return marker;
   }
 
-  async function build(){
+  function applyTooltip(pf, label){
+    if (!$('#chkLabels').checked || !label) return;
+    const c = pf.__meta.center || [pf.__meta.lon, pf.__meta.lat] || null;
+    if(!c) return;
+    const entrances = pf.__meta.entrances ? ` (подъездов: ${pf.__meta.entrances})` : '';
+    const house = pf.__meta.house ? ` • ${pf.__meta.house}` : '';
+    const html = `<span class="pill" style="border:1px solid ${colorByCompany(pf.__meta.company||'')}">${escapeHtml(label)}</span>${entrances}${house}`;
+    addTooltip(c[0], c[1], html);
+  }
+  function reapplyAllTooltips(){
+    state.tooltips.forEach(t=>map.removeChild(t));
+    state.tooltips = [];
+    if(!$('#chkLabels').checked) return;
+    for(const pf of state.polys) applyTooltip(pf, pf.__meta.company||'');
+  }
+  $('#chkLabels').addEventListener('change', reapplyAllTooltips);
+
+  // ===== Номера домов =====
+  function extractHouse(address){
+    const s = String(address||'').replace(/["“”]/g,'').trim();
+    const m = s.match(/,\s*([^,]+)\s*$/);
+    if(m) return m[1].replace(/^(дом|д\.)\s*/i,'').trim();
+    const m2 = s.match(/(\d+[0-9A-Za-zА-Яа-я\/\-]*?)\s*$/);
+    return (m2 ? m2[1] : s);
+  }
+  function addHouseLabel(lon, lat, color, text){
+    const el = document.createElement('div');
+    el.className = 'house-label';
+    el.style.setProperty('--hl-color', color);
+    el.textContent = text;
+    const marker = new YMapMarker({ coordinates: [lon, lat] }, el);
+    state.labels.push(marker);
+    map.addChild(marker);
+  }
+  function rebuildHouseLabels(){
+    state.labels.forEach(m=>map.removeChild(m));
+    state.labels = [];
+    if(!$('#chkHnums').checked) return;
+    for(const pf of state.polys){
+      if (pf.__meta && pf.__meta.center) {
+        const color = colorByCompany(pf.__meta.company||'');
+        const text = pf.__meta.house || extractHouse(pf.__meta.address||'');
+        addHouseLabel(pf.__meta.center[0], pf.__meta.center[1], color, text);
+      }
+    }
+  }
+  $('#chkHnums').addEventListener('change', rebuildHouseLabels);
+
+  // ===== Выбор домов =====
+  function inSelectMode(){ return $('#chkSelectMode').checked; }
+  function applySelectedStyle(pf){
+    const base = colorByCompany(pf.__meta.company||'');
+    pf.update({ style: { fill: base+'E6', stroke: [{ color: '#111', width: 4, strokeStyle: [6,3] }] }});
+  }
+  function applyBaseStyle(pf){
+    const base = colorByCompany(pf.__meta.company||'');
+    pf.update({ style: { fill: base+'E6', stroke: [{ color: base, width: 2 }] }});
+  }
+  function toggleFeatureSelection(pf){
+    if(!inSelectMode()) return;
+    if(state.selected.has(pf)){
+      state.selected.delete(pf);
+      applyBaseStyle(pf);
+    } else {
+      state.selected.add(pf);
+      applySelectedStyle(pf);
+    }
+    updateOnlySelectedVisibility();
+    rebuildHouseLabels();
+  }
+  function clearSelection(){
+    for(const pf of state.selected) applyBaseStyle(pf);
+    state.selected.clear();
+    updateOnlySelectedVisibility();
+    rebuildHouseLabels();
+  }
+  $('#btnClearSel').addEventListener('click', clearSelection);
+  $('#btnSelectBox').addEventListener('click', ()=>{
+    alert('В этой версии прямоугольное выделение не поддержано. Используй мультивыбор кликами.');
+  });
+
+  // Показать только выбранные
+  document.getElementById('chkOnlySel').addEventListener('change', updateOnlySelectedVisibility);
+  function updateOnlySelectedVisibility(){
+    const only = $('#chkOnlySel').checked;
+    if(only){
+      for(const pf of state.polys){
+        if(!state.selected.has(pf) && !state.hidden.has(pf)){
+          map.removeChild(pf);
+          state.hidden.add(pf);
+        }
+      }
+    } else {
+      for(const pf of state.hidden){ map.addChild(pf); }
+      state.hidden.clear();
+    }
+    reapplyAllTooltips();
+    rebuildHouseLabels();
+  }
+
+  // ===== Попап/инфо — делаем простую подсказку при клике (внизу слева) =====
+  function showInfo(pf){
+    const c = pf.__meta;
+    if(!c) return;
+    const coord = (c.lat!=null&&c.lon!=null) ? `<div class='muted' style="margin-top:6px">${c.lat.toFixed(6)}, ${c.lon.toFixed(6)}</div>` : '';
+    const meta = (c.entrances || c.house) ? `<div class='muted' style="margin-top:6px">${c.house?`Дом: ${escapeHtml(c.house)}`:''}${(c.entrances&&c.house)?' • ':''}${c.entrances?`Подъездов: ${escapeHtml(String(c.entrances))}`:''}</div>` : '';
+    const html = `<div style="font-weight:700; margin-bottom:4px;">
+      <span class="pill" style="border:1px solid ${colorByCompany(c.company||'')}">${escapeHtml(c.company||'(без компании)')}</span>
+    </div>
+    <div>${escapeHtml(c.address||'')}</div>${meta}${coord}`;
+    console.log('INFO:', c.address, c.company); // можно заменить на кастомный всплывающий блок
+  }
+
+  // ===== Построение =====
+  function squareAroundLonLat([lon, lat], meters = 30){
+    const dLat = (meters / 111320);
+    const dLon = (meters / (40075000 * Math.cos(lat*Math.PI/180) / 360));
+    return [[lon-dLon, lat+dLat],[lon+dLon, lat+dLat],[lon+dLon, lat-dLat],[lon-dLon, lat-dLat],[lon-dLon, lat+dLat]];
+  }
+
+  function centerOfRingLonLat(ring){
+    let minLat=+Infinity, minLon=+Infinity, maxLat=-Infinity, maxLon=-Infinity;
+    for (const [lo,la] of ring) { if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; }
+    return [(minLon+maxLon)/2, (minLat+maxLat)/2];
+  }
+
+  function fitAll(){
+    if(!state.centers.length) return;
+    // простой fit: берём bbox по центрам
+    let minLat=+Infinity, minLon=+Infinity, maxLat=-Infinity, maxLon=-Infinity;
+    for(const [lon,lat] of state.centers){ if(lat<minLat) minLat=lat; if(lat>maxLat) maxLat=lat; if(lon<minLon) minLon=lon; if(lon>maxLon) maxLon=lon; }
+    const center=[(minLon+maxLon)/2,(minLat+maxLat)/2];
+    const approxZoom = 12; // упрощённо; можно доработать расчёт зума по bbox
+    map.update({ location: { center, zoom: approxZoom, duration: 300 } });
+  }
+
+  async function buildFromItems(items){
     clearAll();
-    const items = parseInput(document.getElementById('addrInput').value);
     for(const item of items){
-      const color = ensureColor(item);
+      const color = colorByCompany(item.company||'');
+      const entrances = item.entrances ? String(item.entrances).trim() : '';
+      const houseShort = item.house ? String(item.house).trim() : '';
+
       try{
         const res = await geocode(item.address);
-        if(!res){ addListItem(item); continue; }
+        if(!res){
+          state.items.push({address:item.address, company:item.company||'', entrances, lat:null, lon:null});
+          addListItem({...item, color, entrances});
+          continue;
+        }
 
-        let latlng = null;
+        let centerLonLat = null;
+        let ringLonLat = null;
+
         if(res.polygon){
-          // координаты идут как [lon,lat] — преобразуем
-          const ringLatLng = res.polygon.map(([lon,lat])=>[lat,lon]);
-          const poly = L.polygon(ringLatLng, { color: color, weight: 2, fillColor: withAlpha(color,0.35) }).addTo(map);
-          state.layers.push(poly);
-          latlng = poly.getBounds().getCenter();
+          ringLonLat = res.polygon.map(([lo,la])=>[lo,la]);
+          const c = centerOfRingLonLat(ringLonLat);
+          centerLonLat = c;
         } else if(res.point){
-          const [lon,lat] = res.point;
-          const sq = squareAround([lon,lat], 30).map(([la,lo])=>[la,lo]); // уже [lat,lon]
-          const poly = L.polygon(sq, { color: color, weight: 2, fillColor: withAlpha(color,0.35) }).addTo(map);
-          const dot = L.circleMarker([lat,lon], { radius: 4, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 }).addTo(map);
-          state.layers.push(poly, dot);
-          latlng = [lat,lon];
+          const [lon, lat] = res.point;
+          let ring = null;
+          try {
+            ring = await fetchBuildingPolygon({ lon, lat }, 500);
+            if (!ring) {
+              await new Promise(r=>setTimeout(r,700));
+              ring = await fetchBuildingPolygon({ lon, lat }, 800);
+            }
+          } catch(e){ /* noop */ }
+          if (ring && ring.length >= 4) {
+            ringLonLat = ring;
+            centerLonLat = centerOfRingLonLat(ringLonLat);
+          } else {
+            ringLonLat = squareAroundLonLat([lon,lat], 30);
+            centerLonLat = [lon, lat];
+          }
         }
 
-        if(latlng){
-          item.lat = latlng[0]; item.lon = latlng[1];
-          state.bounds.extend(latlng);
+        if(ringLonLat){
+          const style = { fill: color+'E6', stroke: [{ color, width: 2 }] };
+          const pf = new YMapFeature({
+            geometry: { type: 'Polygon', coordinates: [ ringLonLat ] },
+            style
+          }, {
+            // Обработчик клика по полигону
+            onClick: ()=>{ toggleFeatureSelection(pf); showInfo(pf); }
+          });
+
+          pf.__meta = {
+            company: item.company || '',
+            address: item.address || '',
+            entrances: entrances || '',
+            house: houseShort || '',
+            center: centerLonLat,
+            lon: centerLonLat ? centerLonLat[0] : null,
+            lat: centerLonLat ? centerLonLat[1] : null
+          };
+
+          state.polys.push(pf);
+          map.addChild(pf);
+
+          // тултип компании (по чекбоксу)
+          applyTooltip(pf, pf.__meta.company);
+
+          // подпись-номер дома (по чекбоксу)
+          if($('#chkHnums').checked){
+            const text = pf.__meta.house || extractHouse(pf.__meta.address);
+            addHouseLabel(centerLonLat[0], centerLonLat[1], color, text);
+          }
+
+          state.centers.push(centerLonLat);
+          state.items.push({address:item.address, company:item.company||'', entrances, lat: pf.__meta.lat, lon: pf.__meta.lon});
+        } else {
+          state.items.push({address:item.address, company:item.company||'', entrances, lat:null, lon:null});
         }
-        addListItem(item);
-        await new Promise(r=>setTimeout(r,120)); // мягкий rate limit
+
+        addListItem({...item, color, entrances});
+        await new Promise(r=>setTimeout(r,350));
       }catch(e){
         console.warn('Ошибка геокодинга', item.address, e);
-        addListItem(item);
+        state.items.push({address:item.address, company:item.company||'', entrances, lat:null, lon:null});
+        addListItem({...item, color, entrances});
       }
     }
     rebuildLegend();
-    if(state.bounds.isValid()) map.fitBounds(state.bounds.pad(0.2));
+    fitAll();
+    rebuildHouseLabels();
+    reapplyAllTooltips();
   }
 
-  document.getElementById('btnBuild').addEventListener('click', build);
-  document.getElementById('btnClear').addEventListener('click', ()=>{ document.getElementById('addrInput').value=''; clearAll(); rebuildLegend(); });
-  document.getElementById('btnFit').addEventListener('click', ()=>{ if(state.bounds.isValid()) map.fitBounds(state.bounds.pad(0.2)); });
+  // ===== Генерация таблицы («наряда») =====
+  function generatePrint(){
+    const sel = Array.from(state.selected);
+    if(sel.length===0){ alert('Не выбрано ни одного дома. Включи режим выбора и кликни по домам.'); return; }
+    const rows = sel.map((pf,i)=>({
+      n: i+1,
+      address: pf.__meta.address||'',
+      company: pf.__meta.company||'',
+      entrances: pf.__meta.entrances||'',
+      house: pf.__meta.house||'',
+      color: colorByCompany(pf.__meta.company||'')
+    }));
+    const html = `<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Наряд — выбранные адреса</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; margin:24px;}
+  h1{font-size:20px;margin:0 0 12px;}
+  .muted{color:#64748b;font-size:12px;margin-bottom:12px}
+  table{border-collapse:collapse;width:100%;}
+  th,td{border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;text-align:left;vertical-align:top;}
+  th{background:#f8fafc;}
+  .sw{display:inline-block;width:14px;height:14px;border:1px solid rgba(0,0,0,.25);border-radius:3px;margin-right:6px;}
+  .pill{display:inline-block;padding:1px 6px;border-radius:999px;border:1px solid #e5e7eb;background:#f1f5f9;font-size:12px}
+  @media print{ .noprint{display:none} }
+</style></head>
+<body>
+  <h1>Наряд — выбранные адреса</h1>
+  <div class="muted">Цвета соответствуют компаниям на карте.</div>
+  <table>
+    <thead><tr><th>№</th><th>Адрес</th><th>Дом</th><th>Подъездов</th><th>Компания</th><th>Цвет</th></tr></thead>
+    <tbody>
+      ${rows.map(r=>`<tr>
+        <td>${r.n}</td>
+        <td>${escapeHtml(r.address)}</td>
+        <td>${escapeHtml(r.house||'')}</td>
+        <td>${escapeHtml(r.entrances||'')}</td>
+        <td><span class="pill">${escapeHtml(r.company||'(без компании)')}</span></td>
+        <td><span class="sw" style="background:${r.color}"></span>${r.color}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+  <div class="noprint" style="margin-top:12px;">
+    <button onclick="window.print()">Печать</button>
+  </div>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if(!w){ alert('Разреши всплывающие окна для печати.'); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+  }
+  document.getElementById('btnGenerate').addEventListener('click', generatePrint);
 
-  // демо-ввод
+  // ===== Экспорт карты (только выбранные) — отдельная страница на Яндекс.Картах =====
+  function exportSelectedMap(){
+    const sel = Array.from(state.selected);
+    if(sel.length===0){ alert('Не выбрано ни одного дома.'); return; }
+    const features = sel.map(pf=>({
+      address: pf.__meta.address||'',
+      company: pf.__meta.company||'',
+      entrances: pf.__meta.entrances||'',
+      house: pf.__meta.house||'',
+      color: colorByCompany(pf.__meta.company||''),
+      ring: pf.__geometry?.coordinates?.[0] || pf.__last?.ring || null
+    }));
+    const html = `<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Карта — выбранные дома</title>
+<script src="https://api-maps.yandex.ru/3.0/?apikey=YOUR_API_KEY_HERE&lang=ru_RU"><\/script>
+<style>
+  html,body{height:100%;margin:0}
+  #wrap{display:grid;grid-template-columns:280px 1fr; height:100%;}
+  #side{padding:14px;border-right:1px solid #eee;overflow:auto;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  #mapx{height:100%;}
+  h1{font-size:18px;margin:0 0 10px;}
+  .muted{color:#64748b;font-size:12px;margin-bottom:12px}
+  .legend{display:grid;grid-template-columns:auto 1fr; gap:6px 8px; font-size:13px;}
+  .sw{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.2)}
+  .addr{margin-bottom:6px;font-size:13px}
+  @media print{ .noprint{display:none} #wrap{grid-template-columns:0 1fr} #side{display:none} }
+
+  .house-label{
+    display:inline-block;padding:0 3px;font-size:11px;font-weight:700;
+    background:rgba(255,255,255,.96);border:2px solid var(--hl-color, rgba(0,0,0,.25));
+    border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.10);line-height:1.1;white-space:nowrap;
+    transform:translateY(-8px);
+  }
+</style></head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h1>Выбранные дома</h1>
+    <div class="muted">На карте показаны только они. Можно распечатать (Ctrl/Cmd+P).</div>
+    <div id="leg" class="legend"></div>
+    <hr>
+    <div id="list"></div>
+    <div class="noprint" style="margin-top:10px;"><button onclick="window.print()">Печать</button></div>
+  </div>
+  <div id="mapx"></div>
+</div>
+<script>
+(async function(){
+  await ymaps3.ready;
+  const { YMap, YMapDefaultSchemeLayer, YMapDefaultFeaturesLayer, YMapMarker, YMapFeature } = ymaps3;
+  const map = new YMap(document.getElementById('mapx'), { location: { center: [46.033,51.533], zoom: 12 } },
+    [new YMapDefaultSchemeLayer(), new YMapDefaultFeaturesLayer()]);
+  const data = ${JSON.stringify(features)};
+  const companies = new Map();
+  const centers = [];
+  function centerOfRingLonLat(r){ let minLat=1e9,minLon=1e9,maxLat=-1e9,maxLon=-1e9; for(const [lo,la] of r){ if(la<minLat)minLat=la; if(la>maxLat)maxLat=la; if(lo<minLon)minLon=lo; if(lo>maxLon)maxLon=lo;} return [(minLon+maxLon)/2,(minLat+maxLat)/2]; }
+  function addLabel(lon,lat,color,text){ const el=document.createElement('div'); el.className='house-label'; el.style.setProperty('--hl-color', color); el.textContent=text; map.addChild(new YMapMarker({coordinates:[lon,lat]}, el)); }
+  function extractHouse(address){ const s=String(address||'').replace(/["“”]/g,'').trim(); const m=s.match(/,\\s*([^,]+)\\s*$/); if(m) return m[1].replace(/^(дом|д\\.)\\s*/i,'').trim(); const m2=s.match(/(\\d+[0-9A-Za-zА-Яа-я\\/\\-]*?)\\s*$/); return (m2?m2[1]:s); }
+
+  data.forEach(f=>{
+    if(!f.ring) return;
+    const pf = new YMapFeature({ geometry: { type:'Polygon', coordinates:[f.ring] }, style: { fill: f.color+'E6', stroke: [{color:f.color, width:2}] } });
+    map.addChild(pf);
+    const c = centerOfRingLonLat(f.ring);
+    centers.push(c);
+    addLabel(c[0], c[1], f.color, f.house || extractHouse(f.address));
+    companies.set(f.company||'(без компании)', f.color);
+    const div = document.createElement('div');
+    div.className='addr';
+    const meta = (f.house || f.entrances) ? ' — ' + [f.house?('дом: '+f.house):'', f.entrances?('подъездов: '+f.entrances):''].filter(Boolean).join(' • ') : '';
+    div.innerHTML = '<span class="sw" style="background:'+f.color+'"></span> '+(f.company||'(без компании)')+' — '+f.address+meta;
+    document.getElementById('list').appendChild(div);
+  });
+
+  const leg = document.getElementById('leg');
+  Array.from(companies.entries()).sort((a,b)=>a[0].localeCompare(b[0],'ru')).forEach(([name,col])=>{
+    const sw = document.createElement('div'); sw.className='sw'; sw.style.background=col;
+    const label = document.createElement('div'); label.textContent = name;
+    leg.appendChild(sw); leg.appendChild(label);
+  });
+
+  if(centers.length){
+    let minLat=1e9,minLon=1e9,maxLat=-1e9,maxLon=-1e9;
+    for(const [lon,lat] of centers){ if(lat<minLat)minLat=lat; if(lat>maxLat)maxLat=lat; if(lon<minLon)minLon=lon; if(lon>maxLon)maxLon=lon; }
+    const center=[(minLon+maxLon)/2,(minLat+maxLat)/2];
+    map.update({ location: { center, zoom: 12, duration: 300 } });
+  }
+})();<\/script>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if(!w){ alert('Разреши всплывающие окна для экспорта карты.'); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+  }
+  document.getElementById('btnExportMap').addEventListener('click', exportSelectedMap);
+
+  // ===== Обработчики =====
+  document.getElementById('btnBuild').addEventListener('click', ()=>{
+    const items = parseTextarea(document.getElementById('addrInput').value);
+    buildFromItems(items);
+  });
+  document.getElementById('btnBuildFile').addEventListener('click', async ()=>{
+    const f = document.getElementById('fileInput').files?.[0];
+    if(!f){ alert('Выбери файл CSV/TSV'); return; }
+    const text = await f.text();
+    const items = parseCSV(text);
+    if(items.length===0){ alert('Не удалось прочитать данные. Проверь колонки (новый или старый формат).'); return; }
+    buildFromItems(items);
+  });
+  document.getElementById('btnClear').addEventListener('click', ()=>{
+    document.getElementById('addrInput').value='';
+    clearAll(); companyColor.clear(); rebuildLegend(); hidePicker();
+  });
+  document.getElementById('btnFit').addEventListener('click', fitAll);
+
+  // демо — новый формат
   document.getElementById('addrInput').value = [
-    '12\t970\tСаратов\t1-я Беговая\t13\t4',
-    '20\t772\tСаратов\t1-й Кавказский\t10\t4'
+    '1\tг. Саратов\tулица Рахова\t169/171\t2\tООО Альфа'
   ].join('\n');
+
+  // Легенда стартовая
+  rebuildLegend();
+
+  // Вспомогательно: лог клика по карте
+  map.events.add('click', (e)=> {
+    if(!e || !e.worldCoordinates) return;
+    const [lon,lat] = e.worldCoordinates;
+    console.log('click:', lon.toFixed(6), lat.toFixed(6));
+  });
+
 })();
 </script>
 </body>
