@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Карта монтажа — контуры домов (Yandex Maps v3)</title>
 
-  <!-- Яндекс.Карты v3 -->
-  <script src="https://api-maps.yandex.ru/3.0/?apikey=YOUR_API_KEY_HERE&lang=ru_RU"></script>
+  <!-- Яндекс.Карты v3 (подставлен твой ключ) -->
+  <script src="https://api-maps.yandex.ru/3.0/?apikey=1c792247-fc14-409f-89b3-abf1b87fabc3&lang=ru_RU"></script>
 
   <style>
     html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
@@ -189,13 +189,14 @@
   function addListItem(item){
     const el=document.createElement('div');
     el.className='item';
-    el.innerHTML=`<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
-      <div style="font-weight:600">${escapeHtml(item.address)}</div>
-      ${item.company?`<span class='pill' style='border:1px solid ${item.color||'#ddd'}'>${escapeHtml(item.company)}</span>`:''}
-    </div>
-    <div class='muted'>
-      ${item.entrances ? `Подъездов: ${item.entrances} • ` : ''}${item.lat!=null&&item.lon!=null?`${Number(item.lat).toFixed(6)}, ${Number(item.lon).toFixed(6)}`:'—'}
-    </div>`;
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+        <div style="font-weight:600">${escapeHtml(item.address)}</div>
+        ${item.company ? `<span class='pill' style='border:1px solid ${item.color||'#ddd'}'>${escapeHtml(item.company)}</span>` : ''}
+      </div>
+      <div class='muted'>
+        ${item.entrances ? `Подъездов: ${item.entrances} • ` : ''}${item.lat!=null&&item.lon!=null?`${Number(item.lat).toFixed(6)}, ${Number(item.lon).toFixed(6)}`:'—'}
+      </div>`;
     el.addEventListener('click',()=>{
       if(item.lat!=null&&item.lon!=null){
         map.update({ location: { center: [item.lon, item.lat], zoom: 17, duration: 300 } });
@@ -203,6 +204,7 @@
     });
     $('#list').appendChild(el);
   }
+
   function rerenderList(){
     $('#list').innerHTML='';
     for(const it of state.items){
@@ -210,6 +212,7 @@
       addListItem({...it, color});
     }
   }
+
   function clearAll(){
     state.polys.forEach(p => map.removeChild(p));
     state.labels.forEach(m => map.removeChild(m));
@@ -322,6 +325,7 @@
   function parseSixCols(parts){
     const n = parts[0]?.trim();
     const city = parts[1]?.trim();
+    theStreet = parts[2]?.trim();
     const street = parts[2]?.trim();
     const house = parts[3]?.trim();
     const entrances = parts[4]?.trim();
@@ -635,17 +639,19 @@
     rebuildHouseLabels();
   }
 
-  // ===== Попап/инфо — делаем простую подсказку при клике (внизу слева) =====
+  // ===== Попап/инфо (сейчас просто лог) =====
   function showInfo(pf){
     const c = pf.__meta;
     if(!c) return;
     const coord = (c.lat!=null&&c.lon!=null) ? `<div class='muted' style="margin-top:6px">${c.lat.toFixed(6)}, ${c.lon.toFixed(6)}</div>` : '';
-    const meta = (c.entrances || c.house) ? `<div class='muted' style="margin-top:6px">${c.house?`Дом: ${escapeHtml(c.house)}`:''}${(c.entrances&&c.house)?' • ':''}${c.entrances?`Подъездов: ${escapeHtml(String(c.entrances))}`:''}</div>` : '';
+    const meta = (c.entrances || c.house)
+      ? `<div class='muted' style="margin-top:6px">${c.house?`Дом: ${escapeHtml(c.house)}`:''}${(c.entrances&&c.house)?' • ':''}${c.entrances?`Подъездов: ${escapeHtml(String(c.entrances))}`:''}</div>`
+      : '';
     const html = `<div style="font-weight:700; margin-bottom:4px;">
       <span class="pill" style="border:1px solid ${colorByCompany(c.company||'')}">${escapeHtml(c.company||'(без компании)')}</span>
     </div>
     <div>${escapeHtml(c.address||'')}</div>${meta}${coord}`;
-    console.log('INFO:', c.address, c.company); // можно заменить на кастомный всплывающий блок
+    console.log('INFO:', c.address, c.company);
   }
 
   // ===== Построение =====
@@ -654,20 +660,17 @@
     const dLon = (meters / (40075000 * Math.cos(lat*Math.PI/180) / 360));
     return [[lon-dLon, lat+dLat],[lon+dLon, lat+dLat],[lon+dLon, lat-dLat],[lon-dLon, lat-dLat],[lon-dLon, lat+dLat]];
   }
-
   function centerOfRingLonLat(ring){
     let minLat=+Infinity, minLon=+Infinity, maxLat=-Infinity, maxLon=-Infinity;
     for (const [lo,la] of ring) { if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; }
     return [(minLon+maxLon)/2, (minLat+maxLat)/2];
   }
-
   function fitAll(){
     if(!state.centers.length) return;
-    // простой fit: берём bbox по центрам
     let minLat=+Infinity, minLon=+Infinity, maxLat=-Infinity, maxLon=-Infinity;
-    for(const [lon,lat] of state.centers){ if(lat<minLat) minLat=lat; if(lat>maxLat) maxLat=lat; if(lon<minLon) minLon=lon; if(lon>maxLon) maxLon=lon; }
+    for(const [lon,lat] of state.centers){ if(lat<minLat)minLat=lat; if(lat>maxLat)maxLat=lat; if(lon<minLon)minLon=lon; if(lon>maxLon)maxLon=lon; }
     const center=[(minLon+maxLon)/2,(minLat+maxLat)/2];
-    const approxZoom = 12; // упрощённо; можно доработать расчёт зума по bbox
+    const approxZoom = 12;
     map.update({ location: { center, zoom: approxZoom, duration: 300 } });
   }
 
@@ -691,8 +694,7 @@
 
         if(res.polygon){
           ringLonLat = res.polygon.map(([lo,la])=>[lo,la]);
-          const c = centerOfRingLonLat(ringLonLat);
-          centerLonLat = c;
+          centerLonLat = centerOfRingLonLat(ringLonLat);
         } else if(res.point){
           const [lon, lat] = res.point;
           let ring = null;
@@ -718,7 +720,6 @@
             geometry: { type: 'Polygon', coordinates: [ ringLonLat ] },
             style
           }, {
-            // Обработчик клика по полигону
             onClick: ()=>{ toggleFeatureSelection(pf); showInfo(pf); }
           });
 
@@ -735,10 +736,7 @@
           state.polys.push(pf);
           map.addChild(pf);
 
-          // тултип компании (по чекбоксу)
           applyTooltip(pf, pf.__meta.company);
-
-          // подпись-номер дома (по чекбоксу)
           if($('#chkHnums').checked){
             const text = pf.__meta.house || extractHouse(pf.__meta.address);
             addHouseLabel(centerLonLat[0], centerLonLat[1], color, text);
@@ -831,7 +829,7 @@
     const html = `<!doctype html>
 <html><head><meta charset="utf-8">
 <title>Карта — выбранные дома</title>
-<script src="https://api-maps.yandex.ru/3.0/?apikey=YOUR_API_KEY_HERE&lang=ru_RU"><\/script>
+<script src="https://api-maps.yandex.ru/3.0/?apikey=1c792247-fc14-409f-89b3-abf1b87fabc3&lang=ru_RU"><\/script>
 <style>
   html,body{height:100%;margin:0}
   #wrap{display:grid;grid-template-columns:280px 1fr; height:100%;}
